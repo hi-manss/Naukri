@@ -1,24 +1,32 @@
 name: Scheduled Python Job
+
+# Allow manual runs for immediate testing + scheduled runs
 on:
+  workflow_dispatch: {}
+
   schedule:
-   # --- Testing Schedule: Runs every 2 minutes (*/2 * * * *) ---
-    - cron: '*/2 * * * *'
+    # --- Testing Schedule: Runs every 5 minutes (GitHub evaluates schedules at ~5 minute granularity) ---
+    - cron: '*/5 * * * *'
     
-    # # --- Original Schedule: Runs at 9:55 AM IST (4:25 AM UTC) ---
+    # --- Original Schedule: Runs at 9:55 AM IST (4:25 AM UTC) ---
     # - cron: '25 4 * * *'
+
 jobs:
   run_scraper:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.x'
+
       - name: Install dependencies
         # Assuming you have a requirements.txt file
         run: pip install -r requirements.txt
+
       - name: Run the main script
         # Change 'main.py' to your script's entry point if different
         run: python main.py
