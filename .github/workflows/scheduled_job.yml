@@ -1,14 +1,15 @@
-name: Scheduled Naukri Update
+name: Scheduled Naukri Job
 
-# Keep schedule and also allow manual runs
+# Allow manual runs for immediate testing + scheduled runs
 on:
   workflow_dispatch:
   schedule:
-  - cron: '*/6 * * * *'
+    - cron: '0 6 * * *'   # Runs daily at 06:00 UTC (change time if needed)
 
 jobs:
   run-naukri:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -16,63 +17,60 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.14'   # the repo recommends Python 3.10+ — change if you prefer 3.14
+          python-version: '3.10'   # Use 3.10 compatible with Selenium
 
-      - name: Show workspace (debug)
+      - name: Debug workspace
         run: |
-          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
+          echo "Current directory:"
           pwd
-          echo "Top-level files:"
+          echo "Contents:"
           ls -la
-          echo "Listing contents of repo root:"
-          for d in *; do
-            echo "=== $d ==="
-            ls -la "$d" || true
-          done
 
-      - name: Install dependencies (if requirements.txt exists)
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
 
-      # --- Securely inject secrets into constants.py (optional approach) ---
-      # If you currently edit constants.py with username/password locally, switch to using GH secrets.
-      # Add the secrets in Repo settings → Secrets → Actions:
-      # - NAUKRI_USERNAME
-      # - NAUKRI_PASSWORD
-      # - NAUKRI_MOBILE
-      # - RESUME_PATH (if needed)
-      #
-      # The step below will replace placeholders in constants.py if you include placeholders like:
-      # USERNAME = "REPLACE_WITH_USERNAME"
-      # PASSWORD = "REPLACE_WITH_PASSWORD"
-      - name: Inject secrets into constants.py (optional)
+      # Optional: Inject GitHub Secrets into constants.py
+      # Add these secrets in: Settings → Secrets → Actions:
+      # NAUKRI_USERNAME, NAUKRI_PASSWORD, NAUKRI_MOBILE
+      - name: Inject secrets into constants.py
         if: ${{ secrets.NAUKRI_USERNAME && secrets.NAUKRI_PASSWORD }}
         run: |
-          # make a backup
           cp constants.py constants.py.bak || true
-          # replace placeholders if present; change patterns if your constants.py uses different names
           python - <<'PY'
-import io,sys,re
-p='constants.py'
-s=open(p).read()
-s=re.sub(r'USERNAME\\s*=\\s*[\"\\\'].*?[\"\\\']', f'USERNAME = \"{ "${{ secrets.NAUKRI_USERNAME }}" }\"', s)
-s=re.sub(r'PASSWORD\\s*=\\s*[\"\\\'].*?[\"\\\']', f'PASSWORD = \"{ "${{ secrets.NAUKRI_PASSWORD }}" }\"', s)
-# If you have placeholders for MOBILE or RESUME_PATH, add similar substitutions.
-open(p,'w').write(s)
-print('constants.py updated (placeholders replaced if matched)')
+import re
+import os
+
+file_path = "constants.py"
+if not os.path.exists(file_path):
+    print("constants.py not found — skipping secret injection.")
+    exit(0)
+
+content = open(file_path).read()
+
+replacements = {
+    r'USERNAME\s*=\s*["\'].*?["\']': f'USERNAME = "{os.environ["NAUKRI_USERNAME"]}"',
+    r'PASSWORD\s*=\s*["\'].*?["\']': f'PASSWORD = "{os.environ["NAUKRI_PASSWORD"]}"',
+    r'MOBILE\s*=\s*["\'].*?["\']':   f'MOBILE = "{os.environ["NAUKRI_MOBILE"]}"',
+}
+
+for pattern, replacement in replacements.items():
+    content = re.sub(pattern, replacement, content)
+
+with open(file_path, "w") as f:
+    f.write(content)
+
+print("constants.py updated with GitHub secrets.")
 PY
         env:
-          # GitHub will inject the secrets into the runner environment variables here
           NAUKRI_USERNAME: ${{ secrets.NAUKRI_USERNAME }}
           NAUKRI_PASSWORD: ${{ secrets.NAUKRI_PASSWORD }}
+          NAUKRI_MOBILE: ${{ secrets.NAUKRI_MOBILE }}
 
-      - name: Run Naukri script
-        # Your repo's main script is `naukri.py` — run that instead of main.py
+      - name: Run Naukri automation
         run: |
-          if [ -f naukri.py ]; then
-            python naukri.py
-          else
-            echo "ERROR: naukri.py not found. Check repository structure."
-            exit 2
-          fi
+          echo "Running naukri.py..."
+          python naukri.py
