@@ -9,6 +9,12 @@ jobs:
   run-naukri:
     runs-on: ubuntu-latest
 
+    # Expose secrets into env for steps (do NOT echo these values)
+    env:
+      NAUKRI_USERNAME: ${{ secrets.NAUKRI_USERNAME }}
+      NAUKRI_PASSWORD: ${{ secrets.NAUKRI_PASSWORD }}
+      NAUKRI_MOBILE:   ${{ secrets.NAUKRI_MOBILE }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -16,7 +22,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.14'
+          python-version: '3.10'
 
       - name: Debug workspace
         run: |
@@ -29,16 +35,17 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      - name: Inject secrets into constants.py (safe, single-line)
-        if: ${{ secrets.NAUKRI_USERNAME && secrets.NAUKRI_PASSWORD }}
-        env:
-          NAUKRI_USERNAME: ${{ secrets.NAUKRI_USERNAME }}
-          NAUKRI_PASSWORD: ${{ secrets.NAUKRI_PASSWORD }}
-          NAUKRI_MOBILE: ${{ secrets.NAUKRI_MOBILE }}
+      - name: Inject secrets into constants.py (if secrets present)
         run: |
+          # Only attempt replacement if at least username & password are provided
+          if [ -z "$NAUKRI_USERNAME" ] || [ -z "$NAUKRI_PASSWORD" ]; then
+            echo "NAUKRI_USERNAME or NAUKRI_PASSWORD not provided. Skipping constants.py update."
+            exit 0
+          fi
+
           if [ -f constants.py ]; then
             cp constants.py constants.py.bak || true
-            # Use perl to do multi-line-safe replacements (s modifier) for Username/Password/Mobile
+            # Use perl to do multi-line-safe replacements for Username/Password/Mobile
             perl -0777 -pe "s/USERNAME\s*=\s*['\"].*?['\"]/USERNAME = \"$NAUKRI_USERNAME\"/s;
                             s/PASSWORD\s*=\s*['\"].*?['\"]/PASSWORD = \"$NAUKRI_PASSWORD\"/s;
                             s/MOBILE\s*=\s*['\"].*?['\"]/MOBILE = \"$NAUKRI_MOBILE\"/s" -i constants.py
