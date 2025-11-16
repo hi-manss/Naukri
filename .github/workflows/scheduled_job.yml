@@ -4,7 +4,7 @@ name: Scheduled Naukri Update
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 6 * * *'  # runs daily at 06:00 UTC (adjust as needed)
+  - cron: '*/6 * * * *'
 
 jobs:
   run-naukri:
