@@ -3,14 +3,14 @@ name: Scheduled Naukri Job
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 6 * * *'
+    - cron: '0 6 * * *'   # daily at 06:00 UTC — adjust if needed
 
 jobs:
   run-naukri:
     runs-on: ubuntu-latest
 
     env:
-      # secrets (set these in your repo Settings -> Secrets -> Actions)
+      # provide these via Repository -> Settings -> Secrets -> Actions
       NAUKRI_USERNAME: ${{ secrets.NAUKRI_USERNAME }}
       NAUKRI_PASSWORD: ${{ secrets.NAUKRI_PASSWORD }}
       NAUKRI_MOBILE:   ${{ secrets.NAUKRI_MOBILE }}
@@ -49,17 +49,16 @@ jobs:
             xdg-utils \
             wget \
             unzip
-      
-          # sanity checks
+
           chromium-browser --version || true
           chromedriver --version || true
-      
+
       - name: Export Chrome env variables
         run: |
           echo "CHROME_BIN=/usr/bin/chromium-browser" >> $GITHUB_ENV
           echo "CHROMEDRIVER=/usr/bin/chromedriver" >> $GITHUB_ENV
 
-      - name: Debug workspace
+      - name: Debug workspace (optional)
         run: |
           echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
           pwd
@@ -69,13 +68,18 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          # install webdriver-manager (optional; lets script auto-download matching driver)
+          # ensure webdriver-manager is available
           pip install webdriver-manager
 
-      - name: Inject secrets into constants.py (if present)
+      - name: (optional) Inject secrets into constants.py (only if constants.py exists)
+        env:
+          NAUKRI_USERNAME: ${{ secrets.NAUKRI_USERNAME }}
+          NAUKRI_PASSWORD: ${{ secrets.NAUKRI_PASSWORD }}
+          NAUKRI_MOBILE: ${{ secrets.NAUKRI_MOBILE }}
         run: |
+          # Do not echo secrets. Only update constants.py if present and secrets are set.
           if [ -z "$NAUKRI_USERNAME" ] || [ -z "$NAUKRI_PASSWORD" ]; then
-            echo "Secrets not provided. Skipping constants.py update."
+            echo "Secrets not provided; skipping constants.py update."
           elif [ -f constants.py ]; then
             cp constants.py constants.py.bak || true
             perl -0777 -pe "s/USERNAME\s*=\s*['\"].*?['\"]/USERNAME = \"$NAUKRI_USERNAME\"/s;
@@ -83,27 +87,15 @@ jobs:
                             s/MOBILE\s*=\s*['\"].*?['\"]/MOBILE = \"$NAUKRI_MOBILE\"/s" -i constants.py
             echo "constants.py updated (backup saved)."
           else
-            echo "constants.py not found; skipping."
+            echo "constants.py not found; skipping update."
           fi
 
-      - name: Export Chrome env (used by Selenium if needed)
+      - name: Run unit tests
         run: |
-          # Point to chromium binary location for scripts that look for CHROME_PATH/CHROME_BIN
-          echo "CHROME_BIN=/usr/bin/chromium-browser" >> $GITHUB_ENV
-          echo "CHROMEDRIVER=/usr/bin/chromedriver" >> $GITHUB_ENV
+          python -m unittest discover -v || python -m unittest -v
 
-      - name: Run Naukri automation (headless-ready)
+      - name: Run Naukri script (only on manual dispatch)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
-          echo "Running naukri.py..."
-          if [ ! -f naukri.py ]; then
-            echo "ERROR: naukri.py not found. Check repository."
-            exit 2
-          fi
-
-          # Ensure Chromium runs with these flags to avoid sandbox / shared memory issues
-          export CI_CHROME_ARGS="--headless=new --no-sandbox --disable-dev-shm-usage --disable-gpu --window-size=1920,1080"
-
-          # Export to env so your script/selenium code can pick it up if coded to read CHROME_ARGS
-          echo "CHROME_ARGS=$CI_CHROME_ARGS" >> $GITHUB_ENV
-
+          echo "Running Naukri script (manual run)..."
           python naukri.py
