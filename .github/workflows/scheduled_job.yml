@@ -3,14 +3,14 @@ name: Scheduled Naukri Job
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 6 * * *'   # change schedule as needed
+    - cron: '0 6 * * *'
 
 jobs:
   run-naukri:
     runs-on: ubuntu-latest
 
-    # Expose secrets into env for steps (do NOT echo these values)
     env:
+      # secrets (set these in your repo Settings -> Secrets -> Actions)
       NAUKRI_USERNAME: ${{ secrets.NAUKRI_USERNAME }}
       NAUKRI_PASSWORD: ${{ secrets.NAUKRI_PASSWORD }}
       NAUKRI_MOBILE:   ${{ secrets.NAUKRI_MOBILE }}
@@ -24,42 +24,85 @@ jobs:
         with:
           python-version: '3.10'
 
+      - name: Install system deps & Chromium
+        run: |
+          sudo apt-get update -y
+
+          # Install libraries Chromium needs in headless CI
+          sudo apt-get install -y \
+            ca-certificates \
+            fonts-liberation \
+            libasound2 \
+            libatk1.0-0 \
+            libatk-bridge2.0-0 \
+            libcups2 \
+            libdbus-1-3 \
+            libgconf-2-4 \
+            libgbm1 \
+            libgtk-3-0 \
+            libnspr4 \
+            libnss3 \
+            libx11-xcb1 \
+            libxcomposite1 \
+            libxdamage1 \
+            libxrandr2 \
+            xdg-utils \
+            wget \
+            gnupg \
+            unzip
+
+          # Install chromium & chromium-driver from apt (versions are usually compatible on ubuntu-latest)
+          sudo apt-get install -y chromium-browser chromium-chromedriver
+
+          # Confirm
+          chromium-browser --version || true
+          chromedriver --version || true
+
       - name: Debug workspace
         run: |
           echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
           pwd
           ls -la
 
-      - name: Install dependencies
+      - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          # install webdriver-manager (optional; lets script auto-download matching driver)
+          pip install webdriver-manager
 
-      - name: Inject secrets into constants.py (if secrets present)
+      - name: Inject secrets into constants.py (if present)
         run: |
-          # Only attempt replacement if at least username & password are provided
           if [ -z "$NAUKRI_USERNAME" ] || [ -z "$NAUKRI_PASSWORD" ]; then
-            echo "NAUKRI_USERNAME or NAUKRI_PASSWORD not provided. Skipping constants.py update."
-            exit 0
-          fi
-
-          if [ -f constants.py ]; then
+            echo "Secrets not provided. Skipping constants.py update."
+          elif [ -f constants.py ]; then
             cp constants.py constants.py.bak || true
-            # Use perl to do multi-line-safe replacements for Username/Password/Mobile
             perl -0777 -pe "s/USERNAME\s*=\s*['\"].*?['\"]/USERNAME = \"$NAUKRI_USERNAME\"/s;
                             s/PASSWORD\s*=\s*['\"].*?['\"]/PASSWORD = \"$NAUKRI_PASSWORD\"/s;
                             s/MOBILE\s*=\s*['\"].*?['\"]/MOBILE = \"$NAUKRI_MOBILE\"/s" -i constants.py
-            echo "constants.py updated from secrets (backup saved as constants.py.bak)."
+            echo "constants.py updated (backup saved)."
           else
-            echo "constants.py not found — skipping secret injection."
+            echo "constants.py not found; skipping."
           fi
 
-      - name: Run Naukri automation
+      - name: Export Chrome env (used by Selenium if needed)
+        run: |
+          # Point to chromium binary location for scripts that look for CHROME_PATH/CHROME_BIN
+          echo "CHROME_BIN=/usr/bin/chromium-browser" >> $GITHUB_ENV
+          echo "CHROMEDRIVER=/usr/bin/chromedriver" >> $GITHUB_ENV
+
+      - name: Run Naukri automation (headless-ready)
         run: |
           echo "Running naukri.py..."
-          if [ -f naukri.py ]; then
-            python naukri.py
-          else
-            echo "ERROR: naukri.py not found. Check repository structure."
+          if [ ! -f naukri.py ]; then
+            echo "ERROR: naukri.py not found. Check repository."
             exit 2
           fi
+
+          # Ensure Chromium runs with these flags to avoid sandbox / shared memory issues
+          export CI_CHROME_ARGS="--headless=new --no-sandbox --disable-dev-shm-usage --disable-gpu --window-size=1920,1080"
+
+          # Export to env so your script/selenium code can pick it up if coded to read CHROME_ARGS
+          echo "CHROME_ARGS=$CI_CHROME_ARGS" >> $GITHUB_ENV
+
+          python naukri.py
