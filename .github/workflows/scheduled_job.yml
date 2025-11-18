@@ -24,12 +24,12 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install system deps & Chromium
+      - name: Install Chromium & chromedriver (apt)
         run: |
           sudo apt-get update -y
-
-          # Install libraries Chromium needs in headless CI
           sudo apt-get install -y \
+            chromium-browser \
+            chromium-chromedriver \
             ca-certificates \
             fonts-liberation \
             libasound2 \
@@ -48,15 +48,16 @@ jobs:
             libxrandr2 \
             xdg-utils \
             wget \
-            gnupg \
             unzip
-
-          # Install chromium & chromium-driver from apt (versions are usually compatible on ubuntu-latest)
-          sudo apt-get install -y chromium-browser chromium-chromedriver
-
-          # Confirm
+      
+          # sanity checks
           chromium-browser --version || true
           chromedriver --version || true
+      
+      - name: Export Chrome env variables
+        run: |
+          echo "CHROME_BIN=/usr/bin/chromium-browser" >> $GITHUB_ENV
+          echo "CHROMEDRIVER=/usr/bin/chromedriver" >> $GITHUB_ENV
 
       - name: Debug workspace
         run: |
