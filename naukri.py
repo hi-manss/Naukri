@@ -1,4 +1,3 @@
-
 #! python3
 # -*- coding: utf-8 -*-
 """Naukri Daily update - Using Chrome"""
@@ -15,39 +14,23 @@ from string import ascii_uppercase, digits
 from pypdf import PdfReader, PdfWriter
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
+
 from selenium import webdriver
 from selenium.common.exceptions import NoSuchElementException
-from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.chrome.service import Service as ChromeService
+
+# Proper selenium imports that were missing
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+
+# webdriver-manager to auto-download compatible chromedriver
+from webdriver_manager.chrome import ChromeDriverManager
+
 import constants
 
-
-
-options = Options()
-# Prefer new headless mode if supported, otherwise fallback:
-options.add_argument("--headless=new")
-options.add_argument("--no-sandbox")
-options.add_argument("--disable-dev-shm-usage")
-options.add_argument("--disable-gpu")
-options.add_argument("--window-size=1920,1080")
-# optionally disable extensions / set user-agent etc.
-options.add_argument("--disable-extensions")
-options.add_argument("--disable-software-rasterizer")
-
-# If you set CHROME_BIN (from workflow), tell Selenium where the binary is:
-chrome_bin = os.environ.get("CHROME_BIN")
-if chrome_bin:
-    options.binary_location = chrome_bin
-
-# Use webdriver-manager to auto-download a matching chromedriver:
-service = Service(ChromeDriverManager().install())
-driver = webdriver.Chrome(service=service, options=options)
-
-
-
+# ------- Configuration flags (you already had these) -------
 # Add folder Path of your resume
 originalResumePath = constants.ORIGINAL_RESUME_PATH
 # Add Path where modified resume should be saved
@@ -63,8 +46,6 @@ updatePDF = False
 
 # If Headless = True, script runs Chrome in headless mode without visible GUI
 headless = False
-
-# ----- No other changes required -----
 
 # Set login URL
 NaukriURL = constants.NAUKRI_LOGIN_URL
@@ -158,6 +139,7 @@ def WaitTillElementPresent(driver, elementTag, locator="ID", timeout=30):
     driver.implicitly_wait(3)
     return result
 
+
 def Logout(driver):
     """Logout from Naukri session """
 
@@ -214,7 +196,8 @@ def Logout(driver):
     except Exception as e:
         log_msg(f"Logout error: {e}")
         return False
-    
+
+
 def ci(xpath_part: str) -> str:
     """
     Wraps an XPath string in lowercase translate() for case-insensitive matching.
@@ -227,15 +210,17 @@ def ci(xpath_part: str) -> str:
 
 def tearDown(driver):
     try:
-        driver.close()
-        log_msg("Driver Closed Successfully")
+        if driver is not None:
+            driver.close()
+            log_msg("Driver Closed Successfully")
     except Exception as e:
         catch(e)
         pass
 
     try:
-        driver.quit()
-        log_msg("Driver Quit Successfully")
+        if driver is not None:
+            driver.quit()
+            log_msg("Driver Quit Successfully")
     except Exception as e:
         catch(e)
         pass
@@ -245,28 +230,65 @@ def randomText():
     return "".join(choice(ascii_uppercase + digits) for _ in range(randint(1, 5)))
 
 
-def LoadNaukri(headless):
-    """Open Chrome to load Naukri.com"""
-
-    options = webdriver.ChromeOptions()
+def get_driver(headless_mode=True):
+    """
+    Create and return a configured Selenium Chrome WebDriver.
+    Use CHROME_BIN env var if set. Uses webdriver-manager to install a compatible chromedriver.
+    """
+    options = Options()
     options.add_argument("--disable-notifications")
-    options.add_argument("--start-maximized")  # ("--kiosk") for MAC
+    options.add_argument("--start-maximized")
     options.add_argument("--disable-popups")
     options.add_argument("--disable-gpu")
-    if headless:
-        options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("headless")
+    options.add_argument("--disable-extensions")
+    options.add_argument("--disable-software-rasterizer")
+    options.add_argument("--window-size=1920,1080")
 
-    # updated to use latest selenium Chrome service
+    # Headless flags
+    if headless_mode:
+        # New headless flag preferred; fallback internally is fine if not supported
+        try:
+            options.add_argument("--headless=new")
+        except Exception:
+            options.add_argument("--headless")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--no-sandbox")
+
+    # Allow workflow to set a custom Chrome binary
+    chrome_bin = os.environ.get("CHROME_BIN")
+    if chrome_bin:
+        options.binary_location = chrome_bin
+
+    # Use webdriver-manager to download a matching chromedriver
+    service = Service(ChromeDriverManager().install())
+
+    driver = webdriver.Chrome(service=service, options=options)
+    driver.implicitly_wait(5)
+    return driver
+
+
+def LoadNaukri(headless):
+    """Open Chrome to load Naukri.com"""
     driver = None
     try:
-        driver = webdriver.Chrome(options=options, service=ChromeService())
+        # create driver using the centralized method
+        driver = get_driver(headless_mode=headless)
     except Exception as e:
-        print(f"Error launching Chrome: {e}")
-        driver = webdriver.Chrome(options)
-    log_msg("Google Chrome Launched!")
+        print(f"Error launching Chrome in get_driver(): {e}")
+        # fallback: try creating with basic options (without webdriver-manager)
+        try:
+            options = webdriver.ChromeOptions()
+            options.add_argument("--disable-notifications")
+            options.add_argument("--start-maximized")
+            if headless:
+                options.add_argument("--disable-dev-shm-usage")
+                options.add_argument("headless")
+            driver = webdriver.Chrome(options=options)
+        except Exception as e2:
+            print(f"Second attempt to launch Chrome failed: {e2}")
+            raise
 
-    driver.implicitly_wait(5)
+    log_msg("Google Chrome Launched!")
     driver.get(NaukriURL)
     return driver
 
@@ -363,7 +385,7 @@ def UpdateProfile(driver):
                 mobFieldElement.clear()
                 mobFieldElement.send_keys(mob)
                 driver.implicitly_wait(2)
-                
+
             saveFieldElement = GetElement(driver, saveXpath, locator="XPATH")
             saveFieldElement.send_keys(Keys.ENTER)
             driver.implicitly_wait(3)
@@ -380,7 +402,7 @@ def UpdateProfile(driver):
                 mobFieldElement.clear()
                 mobFieldElement.send_keys(mob)
                 driver.implicitly_wait(2)
-    
+
             saveFieldElement = GetElement(driver, saveXpath, locator="XPATH")
             saveFieldElement.send_keys(Keys.ENTER)
             driver.implicitly_wait(3)
@@ -395,7 +417,6 @@ def UpdateProfile(driver):
 
     except Exception as e:
         catch(e)
-
 
 
 def UpdateResume():
@@ -434,7 +455,6 @@ def UpdateResume():
     except Exception as e:
         catch(e)
     return os.path.abspath(originalResumePath)
-
 
 
 def UploadResume(driver, resumePath):
